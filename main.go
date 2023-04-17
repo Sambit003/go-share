@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"honnef.co/go/tools/config"
+	"github.com/Sambit003/go-share/config"
 )
 
 func main() {
