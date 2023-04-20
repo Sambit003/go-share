@@ -4,18 +4,19 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/Sambit003/go-share/models"
 	"github.com/spf13/viper"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+
+	"go-share/models"
 )
 
 var DB *gorm.DB
 
 func Load() {
-	viper.setConfigName("config")
-	viper.addConfigPath(".")
-	viper.setConfigType("yaml")
+	viper.SetConfigName("config")
+	viper.AddConfigPath(".")
+	viper.SetConfigType("yaml")
 
 	if err:= viper.ReadInConfig(); err != nil {
 		log.Fatalf("Error while reading config file %s", err)
@@ -24,7 +25,7 @@ func Load() {
 	dbConfig := viper.GetStringMap("database")
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		&dbConfig["host"], &dbConfig["port"], &dbConfig["user"], &dbConfig["password"], &dbConfig["dbname"],
+		dbConfig["host"], dbConfig["port"], dbConfig["user"], dbConfig["password"], dbConfig["name"],
 	)
 
 	var err error
@@ -33,7 +34,7 @@ func Load() {
 		log.Fatalf("Error while connecting to database %s", err)
 	}
 
-	DB.AutoMigrate(&models.User{}, &models.File())
+	DB.AutoMigrate(&models.User{}, &models.File{})
 }
 
 func Close() {

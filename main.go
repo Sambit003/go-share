@@ -1,12 +1,12 @@
 package main
 
 import (
-	"github.com/Sambit003/go-share/controllers"
 	"fmt"
 	"log"
 	"net/http"
 
-	"github.com/Sambit003/go-share/config"
+	"go-share/config"
+	"go-share/controllers"
 )
 
 func main() {
