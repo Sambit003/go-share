@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -12,15 +12,15 @@ var jwtKey = []byte("secret_key")
 
 type Claims struct {
 	UserID uint
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 func GenerateToken(userID uint) (string, error) {
 	expireToken := time.Now().Add(30 * time.Minute)
 	claims := &Claims{
 		UserID: userID,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expireToken.Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expireToken),
 		},
 	}
 
@@ -50,8 +50,8 @@ func VerifyToken(tokenString string) (*Claims, error) {
 		return nil, err
 	}
 
-	if claims.ExpiresAt < time.Now().Unix() {
-		return nil, err
+	if claims.ExpiresAt.Time.Unix() > time.Now().Unix() {
+		return nil, fmt.Errorf("token expired")
 	}
 
 	return claims, nil
