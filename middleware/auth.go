@@ -1,4 +1,4 @@
-package controllers
+package middleware
 
 import (
 	"encoding/json"
@@ -21,7 +21,7 @@ func (ac AuthController) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = models.User(&user)
+	err = models.CreateUser(&user)
 	if err != nil {
 		utils.ErrorJsonResponse(w, err.Error(), http.StatusBadRequest)
 		return
@@ -33,7 +33,7 @@ func (ac AuthController) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.jsonResponse(w, http.StatusOK, map[string]string{"token": token})
+	utils.JsonResponse(w, http.StatusOK, map[string]interface{}{"token": token})
 }
 
 func (ac AuthController) Login(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (ac AuthController) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.jsonResponse(w, map[string]string{"token": token}, http.StatusOK)
+	utils.JsonResponse(w, http.StatusOK, map[string]interface{}{"token": token})
 }
 
 func (ac AuthController) GetUser(w http.ResponseWriter, r *http.Request) {
@@ -72,5 +72,5 @@ func (ac AuthController) GetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.jsonResponse(w, user, http.StatusOK)
+	utils.JsonResponse(w, http.StatusOK, map[string]interface{}{"user": user})
 }

@@ -1,27 +1,35 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+)
 
+var db *gorm.DB
 type User struct {
 	gorm.Model
 	Email    string `gorm:"uniqueIndex" json:"email"`
 	Password string `json:"password"`
 }
 
-func GetUser(email string) (User, error) {
-	var user User
-	err := (*gorm.DB).Where("email = ?", email).First(&user).Error
-	return user, err
+func CreateUser(user *User) error {
+	return db.Create(user).Error
 }
 
-func ValidateUser(email, password string) (User, error) {
-	var user User
-	err := (*gorm.DB).Where("email = ? AND password = ?", email, password).First(&user).Error
-	return user, err
+func ValidateUser(user *User) (*User, error) {
+	var foundUser User
+	err := db.Where("email = ?", user.Email).First(&foundUser).Error
+	if err != nil {
+		return nil, err
+	}
+	return &foundUser, nil
 }
 
-func CreateUser(email, password string) (User, error) {
+func GetUser(id uint) (*User, error) {
 	var user User
-	err := (*gorm.DB).Create(&User{Email: email, Password: password}).Error
-	return user, err
+	err := db.First(&user, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
 }
+

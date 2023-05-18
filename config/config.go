@@ -2,13 +2,12 @@ package config
 
 import (
 	"fmt"
+	"go-share/models"
 	"log"
 
 	"github.com/spf13/viper"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-
-	"go-share/models"
 )
 
 var DB *gorm.DB
