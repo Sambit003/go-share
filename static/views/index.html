@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Goshare - Online File Sharing Platform</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><a href="#">Home</a></li>
+                <li><a href="#">About</a></li>
+                <li><a href="#">Contact</a></li>
+            </ul>
+        </nav>
+        <h1>Goshare</h1>
+        <p>The best way to share your files online</p>
+    </header>
+    <main>
+        <section>
+            <h2>Upload Your Files</h2>
+            <form action="upload.php" method="POST" enctype="multipart/form-data">
+                <input type="file" name="file">
+                <button type="submit">Upload</button>
+            </form>
+        </section>
+        <section>
+            <h2>Shared Files</h2>
+            <ul id="file-list">
+                <!-- Dynamic loading of files will be added here -->
+            </ul>
+        </section>
+    </main>
+    <footer>
+        <p>&copy; 2021 Goshare. All rights reserved.</p>
+    </footer>
+    <script src="script.js"></script>
+</body>
+</html>
