@@ -1,111 +1,78 @@
-# GoShare - File Sharing API Library
+# GoShare - File Sharing API
 
-GoShare is a versatile file sharing API library that integrates seamlessly with all platforms. Built by developers, for developers, GoShare aims to simplify the process of sharing files across different environments and applications.
+GoShare is a Go-based API framework for building file sharing applications. It provides a starting point with essential features like user authentication, file management, and a basic API structure, allowing you to focus on your specific application requirements.
 
 ## Features
 
-- **Platform Agnostic**: Works with all major platforms including web, mobile, and desktop.
-- **Easy Integration**: Simple API endpoints for quick setup and integration.
-- **Secure**: Ensures secure file transfer with encryption and authentication.
-- **Scalable**: Designed to handle high volumes of file transfers efficiently.
-- **Customizable**: Flexible configuration options to suit different needs.
+- **User Authentication:** Secure user registration and login with password hashing and JWT-based authentication.
+- **File Management:** Create, read, update, and delete file metadata, with authorization checks to ensure data security.
+- **API Structure:** Provides a basic RESTful API structure, making it easy to extend with additional endpoints.
+- **Database Integration:** Uses GORM for seamless interaction with a PostgreSQL database.
 
 ## Getting Started
 
-To get started with GoShare, follow these steps:
-
 ### Prerequisites
 
-- Ensure you have [Node.js](https://nodejs.org/) installed.
-- Create an account on [GoShare](https://goshare.example.com) to get your API keys.
+- Go 1.16 or later
+- PostgreSQL
 
 ### Installation
 
-Install the GoShare library via npm:
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/go-share.git
+   cd go-share
+   ```
 
-```sh
-npm install goshare
-```
+2. **Install dependencies:**
+   ```bash
+   go get github.com/golang-jwt/jwt/v5
+   go get github.com/go-playground/validator/v10
+   go get github.com/gorilla/mux
+   go get gorm.io/driver/postgres
+   go get gorm.io/gorm
+   ```
 
-### Usage
+3. **Configure `config.yaml`:**
+   Create a `config.yaml` file in the project root directory and set the following:
+   ```yaml
+   database:
+     host: your_db_host
+     port: your_db_port
+     user: your_db_user
+     password: your_db_password
+     name: your_db_name
+   ```
 
-Here’s a basic example of how to use GoShare to upload a file:
+4. **Run the server:**
+   ```bash
+   go run main.go
+   ```
 
-```javascript
-const GoShare = require('goshare');
+## Project Checklist
 
-const goshare = new GoShare({
-    apiKey: 'YOUR_API_KEY'
-});
+### Done:
+- [x] User authentication (registration and login).
+- [x] File metadata management (CRUD operations).
+- [x] Basic RESTful API structure.
+- [x] Database integration with GORM (PostgreSQL).
+- [x] Code refactoring for best practices and readability.
 
-const filePath = './path/to/your/file.txt';
-
-goshare.upload(filePath)
-    .then(response => {
-        console.log('File uploaded successfully:', response);
-    })
-    .catch(error => {
-        console.error('Error uploading file:', error);
-    });
-```
-
-## API Documentation
-
-### Upload File
-
-```http
-POST /upload
-```
-
-#### Parameters
-
-- `file`: The file to be uploaded.
-- `metadata` (optional): Additional metadata for the file.
-
-#### Response
-
-- `fileId`: The ID of the uploaded file.
-- `url`: The URL to access the uploaded file.
-
-### Download File
-
-```http
-GET /download/:fileId
-```
-
-#### Parameters
-
-- `fileId`: The ID of the file to be downloaded.
-
-#### Response
-
-- The file content.
-
-For full API documentation, visit our [API Docs](https://goshare.example.com/docs).
+### Upcoming:
+- [ ] File storage implementation (local or cloud storage).
+- [ ] Detailed API endpoint design and documentation.
+- [ ] Rate limiting to prevent abuse.
+- [ ] Metrics and monitoring setup.
+- [ ] Production-ready deployment (Docker, etc.).
+- [ ] Security hardening.
 
 ## Contributing
 
-We welcome contributions from the community. Please follow these steps to contribute:
-
+Contributions are welcome! To contribute to GoShare:
 1. Fork the repository.
-2. Create a new branch (`git checkout -b feature-branch`).
-3. Commit your changes (`git commit -am 'Add new feature'`).
-4. Push to the branch (`git push origin feature-branch`).
-5. Create a new Pull Request.
+2. Create a new branch for your feature or bug fix.
+3. Commit your changes with clear and concise commit messages.
+4. Push your branch to your fork.
+5. Open a pull request.
 
-Please read our [Contributing Guidelines](CONTRIBUTING.md) for more details.
-
-## License
-
-GoShare is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-
-## Contact
-
-For support or inquiries, please reach out to us at [support@goshare.example.com](mailto:support@goshare.example.com).
-
----
-
-Developed with ❤️ by [GoShare Team](https://goshare.example.com/team)
-```
-
-Make sure to replace placeholders like `YOUR_API_KEY`, `https://goshare.example.com`, and other example URLs with the actual URLs and information relevant to your project. This markdown provides a comprehensive overview and helps developers get started with integrating GoShare into their projects.
+Please follow Go coding conventions and ensure that your code is well-tested.
