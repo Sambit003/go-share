@@ -1,149 +1,148 @@
 package controllers
 
 import (
-	"net/http"
 	"encoding/json"
-	"github.com/gorilla/mux"
+	"net/http"
+	"strconv"
 
+	"github.com/gorilla/mux"
 	"go-share/config"
 	"go-share/models"
 	"go-share/utils"
 )
 
-func RegisterFileRoutes() *mux.Router {
-	router := mux.NewRouter()
-	router.HandleFunc("/files", CreateFiles).Methods("POST")
-	router.HandleFunc("/files", GetFiles).Methods("GET")
-	router.HandleFunc("/files/{id}", GetFile).Methods("GET")
-	router.HandleFunc("/files/{id}", UpdateFile).Methods("PUT")
-	router.HandleFunc("/files/{id}", DeleteFile).Methods("DELETE")
+// RegisterFileRoutes registers the file-related API routes.
+func RegisterFileRoutes(router *mux.Router) {
+	// Apply authentication middleware to all file-related routes
+	fileRouter := router.PathPrefix("/files").Subrouter()
+	fileRouter.Use(utils.AuthMiddleware)
 
-	return router
+	fileRouter.HandleFunc("", CreateFile).Methods("POST")
+	fileRouter.HandleFunc("", GetFiles).Methods("GET")
+	fileRouter.HandleFunc("/{id}", GetFile).Methods("GET")
+	fileRouter.HandleFunc("/{id}", UpdateFile).Methods("PUT")
+	fileRouter.HandleFunc("/{id}", DeleteFile).Methods("DELETE")
 }
 
-func CreateFiles(w http.ResponseWriter, r *http.Request) {
+// CreateFile handles file creation.
+func CreateFile(w http.ResponseWriter, r *http.Request) {
 	var file models.File
+	if err := json.NewDecoder(r.Body).Decode(&file); err != nil {
+		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
 
-	json.NewDecoder(r.Body).Decode(&file)
+	// Get the user ID from the request context
+	//userID := r.Context().Value("user_id").(uint)
 
 	token := r.Header.Get("Authorization")
 	claims, err := utils.VerifyToken(token)
 	if err != nil {
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
+		utils.ErrorJsonResponse(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
 
 	file.UserID = claims.UserID
-	if err := config.DB.Create(&file).Error; err != nil {
-		http.Error(w, "Error in creating file", http.StatusInternalServerError)
+	if err := file.CreateFile(config.DB); err != nil {
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(file)
+	utils.JsonResponse(w, http.StatusCreated, file)
 }
 
+// GetFiles returns a list of all files.
+// TODO: Add pagination and filtering for production.
 func GetFiles(w http.ResponseWriter, r *http.Request) {
 	var files []models.File
-
 	if err := config.DB.Find(&files).Error; err != nil {
-		http.Error(w, "Error in getting files", http.StatusInternalServerError)
+		utils.ErrorJsonResponse(w, "Error getting files", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(files)
+	utils.JsonResponse(w, http.StatusOK, files)
 }
 
+// GetFile retrieves a single file by ID.
 func GetFile(w http.ResponseWriter, r *http.Request) {
-	var file models.File
-
 	params := mux.Vars(r)
-	if err := config.DB.Where("id = ?", params["id"]).First(&file).Error; err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+	id, err := strconv.ParseUint(params["id"], 10, 64)
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Invalid file ID", http.StatusBadRequest)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(file)
-}
-
-func UpdateFile(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-    id := params["id"]
-
-    var file models.File
-    if err := config.DB.First(&file, id).Error; err != nil {
-        http.Error(w, "File not found", http.StatusNotFound)
-        return
-    }
-
-    token := r.Header.Get("Authorization")
-    claims, err := utils.VerifyToken(token)
-    if err != nil {
-        http.Error(w, "Invalid token", http.StatusUnauthorized)
-        return
-    }
-
-    if file.UserID != claims.UserID {
-        http.Error(w, "Unauthorized", http.StatusUnauthorized)
-        return
-    }
-
-    var updatedFile models.File
-    json.NewDecoder(r.Body).Decode(&updatedFile)
-
-    if updatedFile.Name != "" {
-        file.Name = updatedFile.Name
-    }
-    if updatedFile.ContType != "" {
-        file.ContType = updatedFile.ContType
-    }
-    if updatedFile.Path != "" {
-        file.Path = updatedFile.Path
-    }
-
-    if err := config.DB.Save(&file).Error; err != nil {
-        http.Error(w, "Error updating file", http.StatusInternalServerError)
-        return
-    }
-
-    w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-    json.NewEncoder(w).Encode(file)
-}
-
-func DeleteFile(w http.ResponseWriter, r *http.Request) {
-	params := mux.Vars(r)
-	id := params["id"]
 
 	var file models.File
 	if err := config.DB.First(&file, id).Error; err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
+		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	utils.JsonResponse(w, http.StatusOK, file)
+}
+
+// UpdateFile updates a file.
+func UpdateFile(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, err := strconv.ParseUint(params["id"], 10, 64)
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Invalid file ID", http.StatusBadRequest)
 		return
 	}
 
 	token := r.Header.Get("Authorization")
 	claims, err := utils.VerifyToken(token)
 	if err != nil {
-		http.Error(w, "Invalid token", http.StatusUnauthorized)
+		utils.ErrorJsonResponse(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
 
-	if file.UserID != claims.UserID {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	var file models.File
+	if err := config.DB.First(&file, id).Error; err != nil {
+		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	if err := config.DB.Delete(&file).Error; err != nil {
-		http.Error(w, "Error deleting file", http.StatusInternalServerError)
+	var updatedFile models.File
+	if err := json.NewDecoder(r.Body).Decode(&updatedFile); err != nil {
+		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(file)
+	if err := file.UpdateFile(config.DB, claims.UserID, &updatedFile); err != nil { 
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	utils.JsonResponse(w, http.StatusOK, file)
+}
+
+// DeleteFile deletes a file.
+func DeleteFile(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id, err := strconv.ParseUint(params["id"], 10, 64)
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Invalid file ID", http.StatusBadRequest)
+		return
+	}
+
+	token := r.Header.Get("Authorization")
+	claims, err := utils.VerifyToken(token)
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	var file models.File
+	if err := config.DB.First(&file, id).Error; err != nil {
+		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	if err := file.DeleteFile(config.DB, claims.UserID); err != nil {
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	utils.JsonResponse(w, http.StatusOK, file) 
 }

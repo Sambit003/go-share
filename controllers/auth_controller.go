@@ -5,73 +5,58 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-
 	"go-share/config"
 	"go-share/models"
 	"go-share/utils"
 )
 
-func RegisterRoutes() *mux.Router {
-	router := mux.NewRouter()
+// RegisterAuthRoutes registers the authentication routes with the provided router.
+func RegisterAuthRoutes(router *mux.Router) {
 	router.HandleFunc("/register", Register).Methods("POST")
 	router.HandleFunc("/login", Login).Methods("POST")
-
-	return router
 }
 
+// Register handles user registration.
 func Register(w http.ResponseWriter, r *http.Request) {
 	var user models.User
-
-	json.NewDecoder(r.Body).Decode(&user)
-
-	hashedPassword, err := utils.HashPassword(user.Password)
-	if err != nil {
-		http.Error(w, "Error in password hashing", http.StatusInternalServerError)
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-	user.Password = string(hashedPassword)
 
-	if err := config.DB.Create(&user).Error; err != nil {
-		http.Error(w, "Error in creating user", http.StatusInternalServerError)
+	if err := user.CreateUser(config.DB); err != nil {
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	token, err := utils.GenerateToken(user.ID)
 	if err != nil {
-		http.Error(w, "Error in generating token", http.StatusInternalServerError)
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(token)
-
+	utils.JsonResponse(w, http.StatusCreated, map[string]string{"token": token})
 }
 
+// Login handles user login.
 func Login(w http.ResponseWriter, r *http.Request) {
 	var user models.User
-
-	json.NewDecoder(r.Body).Decode(&user)
-
-	var foundUser models.User
-
-	if err := config.DB.Where("email = ?", user.Email).First(&foundUser).Error; err != nil {
-		http.Error(w, "User not found", http.StatusNotFound)
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if err := utils.ComparePassword(foundUser.Password, user.Password); err {
-		http.Error(w, "Incorrect password", http.StatusUnauthorized)
+	foundUser, err := user.ValidateUserCredentials(config.DB) 
+	if err != nil {
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusUnauthorized) // Use StatusUnauthorized for auth errors
 		return
 	}
 
 	token, err := utils.GenerateToken(foundUser.ID)
 	if err != nil {
-		http.Error(w, "Error in generating token", http.StatusInternalServerError)
+		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(token)
+	utils.JsonResponse(w, http.StatusOK, map[string]string{"token": token}) 
 }

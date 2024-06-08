@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"go-share/models"
 	"log"
 
 	"github.com/spf13/viper"
@@ -10,36 +9,45 @@ import (
 	"gorm.io/gorm"
 )
 
+// DB is the global database connection.
 var DB *gorm.DB
 
-func Load() {
+// LoadConfig loads the application configuration from a YAML file.
+func LoadConfig() {
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.SetConfigType("yaml")
 
-	if err:= viper.ReadInConfig(); err != nil {
-		log.Fatalf("Error while reading config file %s", err)
+	if err := viper.ReadInConfig(); err != nil {
+		log.Fatalf("Error reading config file: %s", err)
 	}
+}
 
-	dbConfig := viper.GetStringMap("database")
+// ConnectDB connects to the PostgreSQL database.
+func ConnectDB() {
+	dbConfig := viper.GetStringMapString("database") // Use GetStringMapString for type safety
+
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		dbConfig["host"], dbConfig["port"], dbConfig["user"], dbConfig["password"], dbConfig["name"],
+		"host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		dbConfig["host"], 
+		dbConfig["port"],
+		dbConfig["user"], 
+		dbConfig["password"], 
+		dbConfig["name"],
 	)
 
 	var err error
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Error while connecting to database %s", err)
+		log.Fatalf("Error connecting to database: %s", err)
 	}
-
-	DB.AutoMigrate(&models.User{}, &models.File{})
 }
 
-func Close() {
+// CloseDB closes the database connection.
+func CloseDB() {
 	sqlDB, err := DB.DB()
 	if err != nil {
-		log.Fatalf("Error while closing database connection %s", err)
+		log.Fatalf("Error closing database connection: %s", err)
 	}
 	sqlDB.Close()
 }

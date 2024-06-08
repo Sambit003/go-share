@@ -4,60 +4,40 @@ import (
 	"errors"
 	"go-share/models"
 	"go-share/utils"
+
 	"gorm.io/gorm"
 )
 
-type UserRepository struct{
+// UserRepository interacts with the users table in the database.
+type UserRepository struct {
 	DB *gorm.DB
 }
 
+// NewUserRepository creates a new UserRepository instance.
 func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{DB: db}
 }
 
-func (ur UserRepository) CreateUser(user *models.User) error {
+// CreateUser creates a new user in the database. 
+func (ur *UserRepository) CreateUser(user *models.User) error {
 	hashedPassword, err := utils.HashPassword(user.Password)
 	if err != nil {
-		return errors.New("error in password hashing")
+		return err // Return the specific hashing error
 	}
 	user.Password = string(hashedPassword)
 
 	if err := ur.DB.Create(&user).Error; err != nil {
-		return errors.New("error in creating user")
+		return errors.New("error creating user in database")
 	}
 
 	return nil
 }
 
-func (ur UserRepository) ValidateUser(user *models.User) (*models.User, error) {
-	var foundUser models.User
-
-	if err := ur.DB.Where("email = ?", user.Email).First(&foundUser).Error; err != nil {
-		return nil, errors.New("user not found")
-	}
-
-	if err := utils.ComparePassword(user.Password, foundUser.Password); err {
-		return nil, errors.New("invalid password")
-	}
-
-	return &foundUser, nil
-}
-
-func (ur UserRepository) GetUserById(id string) (*models.User, error) {
+// GetUserByEmail retrieves a user by their email address.
+func (ur *UserRepository) GetUserByEmail(email string) (*models.User, error) {
 	var user models.User
-
-	if err := ur.DB.Where("id = ?", id).First(&user).Error; err != nil {
-		return nil, errors.New("user not found")
-	}
-
-	return &user, nil
-}
-
-func (ur UserRepository) GetUserByEmail(email string) (*models.User, error) {
-	var user models.User
-
 	if err := ur.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		return nil, errors.New("user not found")
+		return nil, errors.New("user not found") 
 	}
 
 	return &user, nil
