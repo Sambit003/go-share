@@ -20,7 +20,7 @@ GoShare is a Go-based API framework for building file sharing applications. It p
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/your-username/go-share.git
+   git clone https://github.com/Sambit003/go-share.git
    cd go-share
    ```
 
