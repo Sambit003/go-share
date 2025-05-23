@@ -7,8 +7,12 @@ import (
 
 	"github.com/gorilla/mux"
 	"go-share/config"
-	"go-share/models"
+	"go-share/pkg/files"
 	"go-share/utils"
+	"github.com/spf13/viper"
+	"github.com/go-playground/validator/v10"
+	"io" // Added for io.Copy
+	"os" // Added for type assertion to os.File
 )
 
 // RegisterFileRoutes registers the file-related API routes.
@@ -26,14 +30,22 @@ func RegisterFileRoutes(router *mux.Router) {
 
 // CreateFile handles file creation.
 func CreateFile(w http.ResponseWriter, r *http.Request) {
-	var file models.File
-	if err := json.NewDecoder(r.Body).Decode(&file); err != nil {
-		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
+	// Parse multipart form (max 10MB)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		utils.ErrorJsonResponse(w, "Error parsing multipart form", http.StatusBadRequest)
 		return
 	}
 
-	// Get the user ID from the request context
-	//userID := r.Context().Value("user_id").(uint)
+	formFile, handler, err := r.FormFile("file") // "file" is the form field name
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Error retrieving the file from form", http.StatusBadRequest)
+		return
+	}
+	defer formFile.Close()
+
+	fileName := handler.Filename
+	contentType := handler.Header.Get("Content-Type")
+	description := r.FormValue("description") // Get description from form value
 
 	token := r.Header.Get("Authorization")
 	claims, err := utils.VerifyToken(token)
@@ -41,44 +53,126 @@ func CreateFile(w http.ResponseWriter, r *http.Request) {
 		utils.ErrorJsonResponse(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
+	userID := claims.UserID
 
-	file.UserID = claims.UserID
-	if err := file.CreateFile(config.DB); err != nil {
-		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
+	// Get storagePathBase from config, with a default
+	storagePathBase := viper.GetString("storage.base_path")
+	if storagePathBase == "" { // Should be set in main.go or config file
+		storagePathBase = "./uploads" // Fallback default
+	}
+	
+	// Ensure the user-specific directory exists (UploadFile will handle this, but good to be aware)
+	// For example: userSpecificPath := filepath.Join(storagePathBase, "user_"+strconv.Itoa(int(userID)))
+	// os.MkdirAll(userSpecificPath, os.ModePerm) 
+
+	// Get encryption key from header
+	encryptionKeyHeader := r.Header.Get("X-Encryption-Key")
+	var encryptionKey []byte
+	if encryptionKeyHeader != "" {
+		encryptionKey = []byte(encryptionKeyHeader)
+	}
+
+	// Call the new library function
+	newFile, err := files.UploadFile(config.DB, formFile, fileName, contentType, description, userID, storagePathBase, encryptionKey)
+	if err != nil {
+		// Check if the error is a validation error from go-playground/validator
+		if _, ok := err.(validator.ValidationErrors); ok {
+			utils.ErrorJsonResponse(w, "Validation failed: "+err.Error(), http.StatusBadRequest)
+		} else {
+			utils.ErrorJsonResponse(w, "Error uploading file: "+err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
-	utils.JsonResponse(w, http.StatusCreated, file)
+	utils.JsonResponse(w, http.StatusCreated, newFile)
 }
 
 // GetFiles returns a list of all files.
 // TODO: Add pagination and filtering for production.
 func GetFiles(w http.ResponseWriter, r *http.Request) {
-	var files []models.File
-	if err := config.DB.Find(&files).Error; err != nil {
+	var filesResponse []files.File // Changed to files.File and renamed variable
+	if err := config.DB.Find(&filesResponse).Error; err != nil {
 		utils.ErrorJsonResponse(w, "Error getting files", http.StatusInternalServerError)
 		return
 	}
 
-	utils.JsonResponse(w, http.StatusOK, files)
+	utils.JsonResponse(w, http.StatusOK, filesResponse)
 }
 
-// GetFile retrieves a single file by ID.
+// GetFile retrieves a single file by ID for download.
 func GetFile(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	id, err := strconv.ParseUint(params["id"], 10, 64)
+	fileID, err := strconv.ParseUint(params["id"], 10, 64)
 	if err != nil {
 		utils.ErrorJsonResponse(w, "Invalid file ID", http.StatusBadRequest)
 		return
 	}
 
-	var file models.File
-	if err := config.DB.First(&file, id).Error; err != nil {
-		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
+	token := r.Header.Get("Authorization")
+	claims, err := utils.VerifyToken(token)
+	if err != nil {
+		utils.ErrorJsonResponse(w, "Invalid token", http.StatusUnauthorized)
 		return
 	}
+	userID := claims.UserID
 
-	utils.JsonResponse(w, http.StatusOK, file)
+	// Get decryption key from header
+	decryptionKeyHeader := r.Header.Get("X-Decryption-Key")
+	var decryptionKey []byte
+	if decryptionKeyHeader != "" {
+		decryptionKey = []byte(decryptionKeyHeader)
+	}
+
+	openedFile, fileMetadata, err := files.DownloadFile(config.DB, uint(fileID), userID, decryptionKey)
+	if err != nil {
+		errMsg := err.Error()
+		switch errMsg {
+		case "file not found":
+			utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
+		case "unauthorized: you do not have permission to download this file":
+			utils.ErrorJsonResponse(w, "Forbidden: You don't have permission to access this file", http.StatusForbidden)
+		case "file is encrypted, decryption key required":
+			utils.ErrorJsonResponse(w, "File is encrypted, decryption key required in X-Decryption-Key header", http.StatusBadRequest)
+		case "failed to decrypt file: cipher: message authentication failed", "invalid decryption key length: must be 16, 24, or 32 bytes": // Combined common decryption errors
+			utils.ErrorJsonResponse(w, "Failed to decrypt file: Invalid or incorrect decryption key", http.StatusUnauthorized) // Or http.StatusBadRequest
+		default:
+			utils.ErrorJsonResponse(w, "Error retrieving file: "+errMsg, http.StatusInternalServerError)
+		}
+		return
+	}
+	defer openedFile.Close()
+
+	// Set headers for download
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+fileMetadata.Name+"\"")
+	contentType := fileMetadata.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream" // Default content type
+	}
+	w.Header().Set("Content-Type", contentType)
+
+	// Set Content-Length (optional but good practice)
+	// This is more complex now since openedFile is an io.ReadCloser.
+	// We can only reliably get the size if it's an *os.File (non-encrypted).
+	// For encrypted files, the original size isn't directly available from the stream
+	// without reading it or storing it separately.
+	if !fileMetadata.IsEncrypted {
+		if f, ok := openedFile.(*os.File); ok { // Check if it's an os.File
+			fileInfo, err := f.Stat()
+			if err == nil {
+				w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
+			}
+		}
+	}
+	// If it's encrypted, Content-Length might not be set, or we'd need to read the
+	// decrypted content into a buffer first to get its length, which is less efficient for streaming.
+
+	// Stream the file
+	_, err = io.Copy(w, openedFile)
+	if err != nil {
+		// Log the error, but the headers might have already been sent
+		// so we can't send a JSON error response easily.
+		http.Error(w, "Error streaming file: "+err.Error(), http.StatusInternalServerError)
+	}
 }
 
 // UpdateFile updates a file.
@@ -97,13 +191,13 @@ func UpdateFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var file models.File
+	var file files.File // Changed to files.File
 	if err := config.DB.First(&file, id).Error; err != nil {
 		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	var updatedFile models.File
+	var updatedFile files.File // Changed to files.File
 	if err := json.NewDecoder(r.Body).Decode(&updatedFile); err != nil {
 		utils.ErrorJsonResponse(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -133,7 +227,7 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var file models.File
+	var file files.File // Changed to files.File
 	if err := config.DB.First(&file, id).Error; err != nil {
 		utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
 		return
