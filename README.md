@@ -1,78 +1,90 @@
-# GoShare - File Sharing API
+# Go-Share File Operations Library
 
-GoShare is a Go-based API framework for building file sharing applications. It provides a starting point with essential features like user authentication, file management, and a basic API structure, allowing you to focus on your specific application requirements.
+## Overview
+
+This Go-Share library helps you manage file uploads, downloads, and AES-GCM encryption/decryption. It stores files locally and uses PostgreSQL (via GORM) for metadata.
 
 ## Features
 
-- **User Authentication:** Secure user registration and login with password hashing and JWT-based authentication.
-- **File Management:** Create, read, update, and delete file metadata, with authorization checks to ensure data security.
-- **API Structure:** Provides a basic RESTful API structure, making it easy to extend with additional endpoints.
-- **Database Integration:** Uses GORM for seamless interaction with a PostgreSQL database.
+* **File Upload:** Upload files using `multipart/form-data`.
+  * Files are stored in user-specific subdirectories.
+  * Saves file details (name, path, content type, description, owner) in the database.
+* **File Download:** Lets authorized users download their files.
+* **AES-GCM Encryption/Decryption:** Optionally encrypt files at rest.
+  * Uses AES-GCM with 128, 192, or 256-bit keys.
+  * Pass encryption/decryption keys via HTTP headers (see Security Notes for why this is simplified for the example).
+* **Basic User-based Authorization:** Only owners can download or change their file metadata. (The `UploadFile`/`DownloadFile` functions don't directly expose metadata modification; that's handled by `File` model methods).
 
-## Getting Started
+## Configuration
 
-### Prerequisites
+The primary configuration for file storage is the base path where files will be saved on the server.
 
-- Go 1.16 or later
-- PostgreSQL
+* **`STORAGE_BASE_PATH` Environment Variable / `storage.base_path` in `config.yaml`:**
+  * This setting defines the root directory for all uploaded files.
+  * The application defaults to `./uploads` if not specified.
+  * It can be set via an environment variable (e.g., `STORAGE_BASE_PATH=/mnt/fileserver/uploads`) or within a `config.yaml` file (`storage.base_path: /mnt/fileserver/uploads`). Viper is used for configuration management, so environment variables typically take precedence if bound correctly.
+* **Directory Creation:**
+  * The application automatically creates the specified `StorageBasePath` directory (and any necessary parent directories) on startup if it doesn't already exist using `0750` permissions.
+  * User-specific subdirectories (`user_<userID>`) are created within the `StorageBasePath` upon the user's first file upload with `0750` permissions.
 
-### Installation
+## API Endpoints (Brief Overview)
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/Sambit003/go-share.git
-   cd go-share
-   ```
+The library functions are typically called by HTTP handlers. The Go-Share application exposes the following relevant endpoints:
 
-2. **Install dependencies:**
-   ```bash
-   go get github.com/golang-jwt/jwt/v5
-   go get github.com/go-playground/validator/v10
-   go get github.com/gorilla/mux
-   go get gorm.io/driver/postgres
-   go get gorm.io/gorm
-   ```
+* **`POST /files`**: Uploads a file.
+  * Request Body: `multipart/form-data` with a `file` field for the file content and an optional `description` field.
+  * Optional Header: `X-Encryption-Key` (e.g., a 32-byte string) if the client wishes to encrypt the file.
+* **`GET /files/{id}`**: Downloads a file.
+  * Path Parameter: `{id}` is the ID of the file to download.
+  * Optional Header: `X-Decryption-Key` (e.g., a 32-byte string) if the file was previously encrypted and needs to be decrypted. This header is required if the file's `IsEncrypted` flag is true.
 
-3. **Configure `config.yaml`:**
-   Create a `config.yaml` file in the project root directory and set the following:
-   ```yaml
-   database:
-     host: your_db_host
-     port: your_db_port
-     user: your_db_user
-     password: your_db_password
-     name: your_db_name
-   ```
+## Security Notes
 
-4. **Run the server:**
-   ```bash
-   go run main.go
-   ```
+* **Key Management:** The example usage of `X-Encryption-Key` and `X-Decryption-Key` headers is a **major simplification** for demonstration purposes and is **NOT SUITABLE FOR PRODUCTION**. In a real-world application:
+  * Encryption keys should be securely generated and managed (e.g., using a Key Management Service like AWS KMS, Google Cloud KMS, HashiCorp Vault).
+  * Keys should not be directly passed by clients in headers for new uploads or for general decryption.
+  * Key identifiers or wrapped keys might be used, but the raw key material should be handled carefully on the backend.
+* **Authorization:** The library provides basic checks (e.g., `file.UserID == requestingUserID`). Ensure your application's authentication and authorization middleware are robust.
+* **Input Validation:** File names, descriptions, and other user-supplied data should be validated and sanitized to prevent injection attacks or path traversal issues. The `File` model includes validation tags, and `UploadFile` now uses `filepath.Base()` for filenames.
+* **Storage Path Permissions:** The `StorageBasePath` and user-specific subdirectories are created with `0700` permissions by default. Review these permissions based on your specific security requirements.
 
-## Project Checklist
+## Running the Application (Example)
 
-### Done:
-- [x] User authentication (registration and login).
-- [x] File metadata management (CRUD operations).
-- [x] Basic RESTful API structure.
-- [x] Database integration with GORM (PostgreSQL).
-- [x] Code refactoring for best practices and readability.
+To run the full Go-Share application (which uses this library):
 
-### Upcoming:
-- [ ] File storage implementation (local or cloud storage).
-- [ ] Detailed API endpoint design and documentation.
-- [ ] Rate limiting to prevent abuse.
-- [ ] Metrics and monitoring setup.
-- [ ] Production-ready deployment (Docker, etc.).
-- [ ] Security hardening.
+1. **Configure:**
+    * Ensure you have a PostgreSQL database running and configured.
+    * Create a `.env` file or `config.yaml` in the project root.
+    * Example `.env`:
 
-## Contributing
+        ```env
+        DB_HOST=localhost
+        DB_PORT=5432
+        DB_USER=youruser
+        DB_PASSWORD=yourpassword
+        DB_NAME=goshare_db
+        JWT_SECRET=yourverysecurejwtsecret
+        STORAGE_BASE_PATH=./my_secure_uploads
+        ```
 
-Contributions are welcome! To contribute to GoShare:
-1. Fork the repository.
-2. Create a new branch for your feature or bug fix.
-3. Commit your changes with clear and concise commit messages.
-4. Push your branch to your fork.
-5. Open a pull request.
+    * Example `config.yaml`:
 
-Please follow Go coding conventions and ensure that your code is well-tested.
+        ```yaml
+        database:
+          host: localhost
+          port: "5432"
+          user: youruser
+          password: yourpassword
+          name: goshare_db
+        jwt_secret: yourverysecurejwtsecret
+        storage:
+          base_path: ./my_secure_uploads
+        ```
+
+2. **Run:**
+
+    ```bash
+    go run main.go
+    ```
+
+    The server will typically start on port 8080.
