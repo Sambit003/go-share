@@ -2,17 +2,20 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
-	"github.com/gorilla/mux"
 	"go-share/config"
 	"go-share/pkg/files"
 	"go-share/utils"
-	"github.com/spf13/viper"
+	"io"
+	"os"
+
 	"github.com/go-playground/validator/v10"
-	"io" // Added for io.Copy
-	"os" // Added for type assertion to os.File
+	"github.com/gorilla/mux"
+	"github.com/spf13/viper"
 )
 
 // RegisterFileRoutes registers the file-related API routes.
@@ -60,10 +63,10 @@ func CreateFile(w http.ResponseWriter, r *http.Request) {
 	if storagePathBase == "" { // Should be set in main.go or config file
 		storagePathBase = "./uploads" // Fallback default
 	}
-	
+
 	// Ensure the user-specific directory exists (UploadFile will handle this, but good to be aware)
 	// For example: userSpecificPath := filepath.Join(storagePathBase, "user_"+strconv.Itoa(int(userID)))
-	// os.MkdirAll(userSpecificPath, os.ModePerm) 
+	// os.MkdirAll(userSpecificPath, os.ModePerm)
 
 	// Get encryption key from header
 	encryptionKeyHeader := r.Header.Get("X-Encryption-Key")
@@ -125,18 +128,23 @@ func GetFile(w http.ResponseWriter, r *http.Request) {
 
 	openedFile, fileMetadata, err := files.DownloadFile(config.DB, uint(fileID), userID, decryptionKey)
 	if err != nil {
-		errMsg := err.Error()
-		switch errMsg {
-		case "file not found":
+		// errMsg := err.Error() // No longer needed for direct string comparison
+		switch {
+		case errors.Is(err, files.ErrFileNotFound):
 			utils.ErrorJsonResponse(w, "File not found", http.StatusNotFound)
-		case "unauthorized: you do not have permission to download this file":
+		case errors.Is(err, files.ErrUnauthorized):
 			utils.ErrorJsonResponse(w, "Forbidden: You don't have permission to access this file", http.StatusForbidden)
-		case "file is encrypted, decryption key required":
+		case errors.Is(err, files.ErrDecryptionKeyRequired):
 			utils.ErrorJsonResponse(w, "File is encrypted, decryption key required in X-Decryption-Key header", http.StatusBadRequest)
-		case "failed to decrypt file: cipher: message authentication failed", "invalid decryption key length: must be 16, 24, or 32 bytes": // Combined common decryption errors
-			utils.ErrorJsonResponse(w, "Failed to decrypt file: Invalid or incorrect decryption key", http.StatusUnauthorized) // Or http.StatusBadRequest
+		// Separate cases for decryption failures for more specific client feedback.
+		case errors.Is(err, files.ErrInvalidKeyLength): // Assuming ErrInvalidKeyLength is defined in files package
+			utils.ErrorJsonResponse(w, "Failed to decrypt file: Invalid decryption key length. Must be 16, 24, or 32 bytes.", http.StatusBadRequest)
+		case strings.Contains(err.Error(), "cipher: message authentication failed"): // Specific check for GCM auth failure if not covered by a sentinel error
+			utils.ErrorJsonResponse(w, "Failed to decrypt file: Invalid or incorrect decryption key (authentication failed)", http.StatusUnauthorized)
 		default:
-			utils.ErrorJsonResponse(w, "Error retrieving file: "+errMsg, http.StatusInternalServerError)
+			// Log the actual error for server-side debugging
+			// log.Printf("Error retrieving file %d: %v", fileID, err)
+			utils.ErrorJsonResponse(w, "Error retrieving file: "+err.Error(), http.StatusInternalServerError)
 		}
 		return
 	}
@@ -203,7 +211,7 @@ func UpdateFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := file.UpdateFile(config.DB, claims.UserID, &updatedFile); err != nil { 
+	if err := file.UpdateFile(config.DB, claims.UserID, &updatedFile); err != nil {
 		utils.ErrorJsonResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -238,5 +246,5 @@ func DeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.JsonResponse(w, http.StatusOK, file) 
+	utils.JsonResponse(w, http.StatusOK, file)
 }

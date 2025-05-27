@@ -4,21 +4,22 @@
 package files
 
 import (
-	"gorm.io/gorm"
-	"go-share/utils"
 	"errors"
+	"go-share/utils"
+
+	"gorm.io/gorm"
 )
 
 // File represents the metadata of a shared file within the system.
 // It includes details about the file's name, path, type, and ownership.
 type File struct {
-	gorm.Model           // GORM's base model (ID, CreatedAt, UpdatedAt, DeletedAt)
-	Name        string `json:"name" validate:"required"` // Name of the file.
-	ContentType string `json:"content_type"`             // MIME type of the file.
-	Path        string `json:"path" validate:"required"` // Absolute path to the file on the server's filesystem.
-	Description string `json:"description"`              // Optional description of the file.
+	gorm.Model         // GORM's base model (ID, CreatedAt, UpdatedAt, DeletedAt)
+	Name        string `json:"name" validate:"required"`       // Name of the file.
+	ContentType string `json:"content_type"`                   // MIME type of the file.
+	Path        string `json:"path" validate:"required"`       // Absolute path to the file on the server's filesystem.
+	Description string `json:"description"`                    // Optional description of the file.
 	UserID      uint   `json:"user_id" gorm:"index; not null"` // ID of the user who owns this file.
-	IsEncrypted bool   `json:"is_encrypted"`             // Flag indicating whether the file content is encrypted.
+	IsEncrypted bool   `json:"is_encrypted"`                   // Flag indicating whether the file content is encrypted.
 }
 
 // CreateFile persists a new file record to the database.
@@ -45,20 +46,20 @@ func (f *File) UpdateFile(db *gorm.DB, userID uint, updatedFile *File) error {
 		return errors.New("unauthorized to update file")
 	}
 
-    if updatedFile.Name != "" {
-        f.Name = updatedFile.Name
-    }
-    if updatedFile.ContentType != "" {
-        f.ContentType = updatedFile.ContentType
-    }
-    // Path update might need careful consideration regarding the actual file on disk.
-    if updatedFile.Path != "" {
-        f.Path = updatedFile.Path
-    }
-    if updatedFile.Description != "" {
-        f.Description = updatedFile.Description
-    }
-    // IsEncrypted status is typically set during upload and not directly updatable here.
+	if updatedFile.Name != "" {
+		f.Name = updatedFile.Name
+	}
+	if updatedFile.ContentType != "" {
+		f.ContentType = updatedFile.ContentType
+	}
+	// Path update might need careful consideration regarding the actual file on disk.
+	if updatedFile.Path != "" {
+		f.Path = updatedFile.Path
+	}
+	if updatedFile.Description != "" {
+		f.Description = updatedFile.Description
+	}
+	// IsEncrypted status is typically set during upload and not directly updatable here.
 
 	if err := db.Save(&f).Error; err != nil {
 		return errors.New("error updating file")
@@ -72,13 +73,15 @@ func (f *File) UpdateFile(db *gorm.DB, userID uint, updatedFile *File) error {
 // ensuring that only the owner can delete the file.
 // Note: This method only deletes the database record. The actual file on the
 // filesystem is not removed by this method and should be handled separately if needed.
+// Consider implementing physical file deletion here or in the calling controller after successful DB deletion,
+// or a periodic cleanup job for orphaned files.
 func (f *File) DeleteFile(db *gorm.DB, userID uint) error {
 	if f.UserID != userID {
 		return errors.New("unauthorized to delete file")
 	}
 
 	if err := db.Delete(&f).Error; err != nil {
-		return errors.New("error deleting file") 
+		return errors.New("error deleting file")
 	}
 
 	return nil

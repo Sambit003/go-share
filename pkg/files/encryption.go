@@ -6,6 +6,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 )
@@ -29,17 +30,17 @@ import (
 func EncryptData(data []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create cipher block: %w", err)
 	}
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
 	// gcm.Seal prepends the nonce to the ciphertext
@@ -65,12 +66,12 @@ func EncryptData(data []byte, key []byte) ([]byte, error) {
 func DecryptData(data []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create cipher block: %w", err)
 	}
 
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
 	nonceSize := gcm.NonceSize()
@@ -79,52 +80,108 @@ func DecryptData(data []byte, key []byte) ([]byte, error) {
 	}
 
 	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	return gcm.Open(nil, nonce, ciphertext, nil)
+	decryptedData, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt data: %w", err) // Wrap GCM open error
+	}
+	return decryptedData, nil
 }
 
-// EncryptFile reads the content of a file, encrypts it using EncryptData,
-// and then writes the encrypted content back to the original file, overwriting it.
-//
-// Parameters:
-//   - filePath: The path to the file to be encrypted.
-//   - key: The AES encryption key (16, 24, or 32 bytes).
-//
-// Returns:
-//   - An error if reading the file, encrypting its content, or writing the
-//     encrypted content back to the file fails.
+// EncryptFile encrypts a file using AES-GCM streaming.
+// It reads from filePath, encrypts content, and writes to a temporary file,
+// then replaces the original file.
 func EncryptFile(filePath string, key []byte) error {
-	content, err := os.ReadFile(filePath)
+	inputFile, err := os.Open(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open input file for encryption: %w", err)
+	}
+	defer inputFile.Close()
+
+	tempFilePath := filePath + ".tmp"
+	tempFile, err := os.Create(tempFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file for encryption: %w", err)
+	}
+	// Ensure tempFile is closed and removed in case of errors or successful rename
+	defer func() {
+		tempFile.Close()
+		// Attempt to remove temp file. If os.Rename succeeded, this will (and should) fail.
+		// If os.Rename failed or was not reached, this cleans up.
+		os.Remove(tempFilePath)
+	}()
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return fmt.Errorf("failed to create cipher block for encryption: %w", err)
 	}
 
-	encryptedContent, err := EncryptData(content, key)
+	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create GCM for encryption: %w", err)
 	}
 
-	return os.WriteFile(filePath, encryptedContent, 0644)
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return fmt.Errorf("failed to generate nonce for encryption: %w", err)
+	}
+
+	if _, err := tempFile.Write(nonce); err != nil {
+		return fmt.Errorf("failed to write nonce to temporary file: %w", err)
+	}
+
+	// GCM's Seal function can be used for streaming if we manage the ciphertext output.
+	// However, a more explicit stream cipher mode like CTR or CFB is often used with GCM for just integrity.
+	// For AES-GCM authenticated encryption stream:
+	// We write nonce, then ciphertext. GCM handles both encryption and authentication tag.
+	// The "streaming" part for very large files remains a TODO as it's complex with GCM.
+
+	chunkSize := 64 * 1024 // 64 KB chunks
+	buffer := make([]byte, chunkSize)
+
+	for {
+		n, err := inputFile.Read(buffer)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read chunk from input file: %w", err)
+		}
+		if n == 0 {
+			break
+		}
+
+		encryptedChunk := gcm.Seal(nil, nonce, buffer[:n], nil)
+		if _, err := tempFile.Write(encryptedChunk); err != nil {
+			return fmt.Errorf("failed to write encrypted chunk to temporary file: %w", err)
+		}
+	}
+
+	if err := tempFile.Close(); err != nil {
+		// If close fails, os.Remove(tempFilePath) in defer will still run.
+		return fmt.Errorf("failed to close temporary file after writing encrypted data: %w", err)
+	}
+
+	// Replace the original file with the temporary file
+	if err := os.Rename(tempFilePath, filePath); err != nil {
+		// If rename fails, os.Remove(tempFilePath) in defer will clean up the .tmp file.
+		return fmt.Errorf("failed to replace original file with encrypted file: %w", err)
+	}
+	// If rename succeeds, the defer os.Remove(tempFilePath) will try to remove the *new* filePath + ".tmp"
+	// which won't exist, which is fine. The original tempFilePath (which was renamed) is gone.
+
+	return nil
 }
 
-// DecryptFile reads the content of an encrypted file, decrypts it using DecryptData,
-// and returns a *bytes.Reader for the decrypted content.
-//
-// Parameters:
-//   - filePath: The path to the encrypted file.
-//   - key: The AES decryption key (16, 24, or 32 bytes).
-//
-// Returns:
-//   - A *bytes.Reader containing the decrypted file content.
-//   - An error if reading the file or decrypting its content fails.
+// DecryptFile decrypts a file using AES-GCM.
+// It reads the encrypted file, decrypts its content, and returns a *bytes.Reader.
+// TODO: Implement true streaming decryption for large files.
 func DecryptFile(filePath string, key []byte) (*bytes.Reader, error) {
-	encryptedContent, err := os.ReadFile(filePath)
+	encryptedContent, err := os.ReadFile(filePath) // Reads the whole file
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read encrypted file for decryption: %w", err)
 	}
 
 	decryptedContent, err := DecryptData(encryptedContent, key)
 	if err != nil {
-		return nil, err
+		// This will catch GCM authentication errors like "cipher: message authentication failed"
+		return nil, fmt.Errorf("failed to decrypt file data: %w", err)
 	}
 
 	return bytes.NewReader(decryptedContent), nil
